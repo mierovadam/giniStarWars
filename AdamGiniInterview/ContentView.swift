@@ -19,20 +19,16 @@ struct ContentView: View {
                     }
                     .onAppear {
                         if viewModel.isLastPerson(person) && !viewModel.isFetching {
-                            viewModel.loadMoreData()
+                            viewModel.callGetNextPage()
                         }
                     }
                 }
-
                 if viewModel.isFetching {
                     ProgressView()
                         .padding(32)
                 }
             }
             .padding(.horizontal, 32)
-            .onAppear {
-                viewModel.loadInitialData()
-            }
         }
     }
 }

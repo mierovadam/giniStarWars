@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 class PeopleViewModel: ObservableObject {
     @Published var people: [Person] = []
@@ -13,20 +14,46 @@ class PeopleViewModel: ObservableObject {
     
     private var totalResults = 0
     private var nextUrl = ""
-
-    func loadInitialData() {
-        isFetching = true
-        RequestManager.shared.getPeople(nextUrl: nextUrl) { [weak self] response in
-            self?.handleResult(response)
-        }
+    
+    var cancellables = Set<AnyCancellable>()
+    
+    init() {
+        callGetNextPage()
     }
 
-    func loadMoreData() {
-        if totalResults == people.count{ return }
+    
+    //Combine
+    func callGetNextPage() {
         isFetching = true
-        RequestManager.shared.getPeople(nextUrl: nextUrl) { [weak self] response in
-            self?.handleResult(response)
+        guard let url = URL(string: nextUrl.isEmpty ? "https://swapi.dev/api/people/?page=1" : nextUrl) else {return}
+
+        URLSession.shared.dataTaskPublisher(for: url)
+            .receive(on: DispatchQueue.main)
+            .tryMap(handleOutput)
+            .decode(type: PeopleResponse.self, decoder: JSONDecoder())
+            .sink(receiveCompletion: { completion in
+                print(completion)
+            }, receiveValue: { [weak self] (parsedResponse) in
+                self?.handlePeopleResponse(response: parsedResponse)
+                self?.isFetching = false
+            })
+            .store(in: &cancellables)
+    }
+    
+    func handleOutput(output: URLSession.DataTaskPublisher.Output) throws -> Data {
+        guard
+            let response = output.response as? HTTPURLResponse,
+            response.statusCode >= 200 && response.statusCode < 300 else {
+            throw URLError(.badServerResponse)
         }
+        return output.data
+    }
+
+    func handlePeopleResponse(response: PeopleResponse) {
+        self.people.append(contentsOf: response.results)
+        self.totalResults = response.count
+        self.nextUrl = response.next ?? ""
+        self.isFetching = false
     }
 
     func toggleSelection(for person: Person) {
@@ -44,17 +71,4 @@ class PeopleViewModel: ObservableObject {
         person.id == people.last?.id
     }
 
-    private func handleResult(_ response: Result<PeopleResponse, Error>) {
-        DispatchQueue.main.async {
-            self.isFetching = false
-            switch response {
-            case .success(let response):
-                self.people.append(contentsOf: response.results)
-                self.nextUrl = response.next ?? ""
-                self.totalResults = response.count
-            case .failure(let error):
-                print(error.localizedDescription)
-            }
-        }
-    }
 }
